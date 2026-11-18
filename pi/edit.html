@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f15">
+<title>Ticker</title>
+<style>
+  :root { --bg:#0b0f15; --card:#121822; --line:#222b38; --txt:#e8edf3; --mut:#7d8896; --up:#1fd67a; --dn:#ff4d5e; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui, sans-serif; padding:16px 16px 40px; }
+  header { display:flex; align-items:center; justify-content:space-between; margin:4px 0 14px; }
+  h1 { font-size:22px; margin:0; } #st { font-size:13px; color:var(--mut); }
+  form { display:flex; gap:8px; margin-bottom:14px; }
+  input { flex:1; min-width:0; padding:14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--txt); font-size:17px; text-transform:uppercase; }
+  button { border:0; border-radius:10px; font-size:16px; cursor:pointer; }
+  .add { padding:0 18px; background:var(--up); color:#04140b; font-weight:700; }
+  ul { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
+  li { display:grid; grid-template-columns:1fr auto; gap:4px 10px; padding:12px 12px 10px 14px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .s { font-weight:700; font-size:18px; letter-spacing:.02em; }
+  .q { text-align:right; font-variant-numeric:tabular-nums; }
+  .p { color:var(--mut); font-size:15px; } .c { font-weight:700; font-size:16px; }
+  .up { color:var(--up); } .dn { color:var(--dn); } .na { color:var(--mut); }
+  .ctl { grid-column:1 / -1; display:flex; gap:6px; justify-content:flex-end; }
+  .ctl button { width:44px; height:36px; background:#18202b; color:var(--txt); border:1px solid #2a3442; }
+  .ctl .x { color:var(--dn); }
+  .hint { font-size:13px; color:var(--mut); margin-top:16px; line-height:1.5; }
+  code { background:var(--card); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header><h1>Ticker</h1><span id="st">connexion…</span></header>
+<form id="f"><input id="in" placeholder="Ajouter : AAPL, MC.PA…" autocomplete="off" autocapitalize="characters"><button class="add">+</button></form>
+<ul id="list"></ul>
+<p class="hint">Formats Yahoo : <code>AAPL</code> · <code>MC.PA</code> (Paris) · <code>^FCHI</code> (CAC 40) · <code>BTC-EUR</code></p>
+<script>
+let syms = [], q = {};
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString("fr-FR", {minimumFractionDigits:2, maximumFractionDigits:2});
+
+function draw() {
+  $("list").innerHTML = syms.map((s, i) => {
+    const d = q[s] || {}, c = d.c;
+    const cls = c == null ? "na" : c >= 0 ? "up" : "dn";
+    const ch = c == null ? "" : (c >= 0 ? "▲ +" : "▼ ") + fmt(c) + " %";
+    return `<li><span class="s">${s}</span><span class="q"><span class="p">${d.p == null ? "—" : fmt(d.p) + " " + (d.cur || "").trim()}</span> ` +
+      `<span class="c ${cls}">${ch}</span></span><span class="ctl">` +
+      `<button onclick="mv(${i},-1)">▲</button><button onclick="mv(${i},1)">▼</button><button class="x" onclick="rm(${i})">✕</button></span></li>`;
+  }).join("");
+}
+
+async function save() {
+  draw(); $("st").textContent = "envoi…";
+  const r = await fetch("/api/tickers", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(syms)});
+  syms = await r.json(); draw(); $("st").textContent = "✓ envoyé";
+}
+function mv(i, d) { const j = i + d; if (j < 0 || j >= syms.length) return; [syms[i], syms[j]] = [syms[j], syms[i]]; save(); }
+function rm(i) { syms.splice(i, 1); save(); }
+
+$("f").onsubmit = e => {
+  e.preventDefault();
+  $("in").value.split(",").map(s => s.trim().toUpperCase()).filter(s => s && !syms.includes(s)).forEach(s => syms.push(s));
+  $("in").value = ""; save();
+};
+
+async function poll() {
+  try {
+    const j = await (await fetch("/api/quotes")).json();
+    q = Object.fromEntries(j.data.map(d => [d.s, d])); draw();
+    const s = Math.round(Date.now() / 1000 - j.ts);
+    if (!$("st").textContent.startsWith("envoi")) $("st").textContent = j.ts ? `● direct · MAJ ${s}s` : "en attente…";
+  } catch (e) { $("st").textContent = "✗ Pi injoignable"; }
+}
+
+fetch("/api/tickers").then(r => r.json()).then(j => { syms = j; draw(); poll(); });
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

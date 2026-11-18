@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Ticker</title>
+<style>
+  :root { --bg:#05070a; --panel:#0b0f15; --line:#1a212c; --txt:#e8edf3; --mut:#7d8896; --up:#1fd67a; --dn:#ff4d5e; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100vw; height:100vh; overflow:hidden; background:var(--bg); color:var(--txt);
+    font-family:"DejaVu Sans", "Segoe UI", sans-serif; cursor:none; }
+  .wrap { display:grid; grid-template-columns:19vw 1fr; height:100vh; }
+  .side { background:var(--panel); border-right:2px solid var(--line); display:flex; flex-direction:column;
+    justify-content:center; padding:0 2vw; gap:3vh; }
+  .clock { font-size:22vh; font-weight:700; line-height:.9; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+  .date { font-size:6vh; color:var(--mut); text-transform:capitalize; }
+  .mkts { display:flex; flex-direction:column; gap:1.5vh; font-size:5.5vh; }
+  .mkt { display:flex; align-items:center; gap:1vw; }
+  .dot { width:2.6vh; height:2.6vh; border-radius:50%; background:var(--mut); }
+  .dot.open { background:var(--up); box-shadow:0 0 1.5vh var(--up); }
+  .upd { font-size:4.5vh; color:var(--mut); }
+  .lanes { display:grid; grid-template-rows:63fr 37fr; overflow:hidden; }
+  .lane { position:relative; overflow:hidden; display:flex; align-items:center; }
+  .lane + .lane { border-top:2px solid var(--line); background:#080b10; }
+  .track { display:flex; white-space:nowrap; will-change:transform; animation:scroll linear infinite; }
+  .lane.rev .track { animation-direction:reverse; }
+  @keyframes scroll { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+  .it { display:flex; align-items:baseline; gap:1.4vw; padding:0 3vw; border-right:2px solid var(--line); }
+  .big .sym { font-size:20vh; font-weight:700; }
+  .big .px  { font-size:17vh; font-variant-numeric:tabular-nums; }
+  .big .ch  { font-size:15vh; font-weight:700; font-variant-numeric:tabular-nums; }
+  .small .lbl { font-size:8vh; color:var(--mut); font-weight:700; letter-spacing:.05em; }
+  .small .sym { font-size:10vh; font-weight:700; }
+  .small .px  { font-size:9vh; font-variant-numeric:tabular-nums; color:var(--mut); }
+  .small .ch  { font-size:10vh; font-weight:700; font-variant-numeric:tabular-nums; }
+  .up { color:var(--up); } .dn { color:var(--dn); } .na { color:var(--mut); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="side">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+    <div class="mkts">
+      <div class="mkt"><span class="dot" id="dPA"></span>Paris</div>
+      <div class="mkt"><span class="dot" id="dNY"></span>New York</div>
+    </div>
+    <div class="upd" id="upd">connexion…</div>
+  </div>
+  <div class="lanes">
+    <div class="lane big"><div class="track" id="t1"></div></div>
+    <div class="lane small rev"><div class="track" id="t2"></div></div>
+  </div>
+</div>
+<script>
+const SPEED1 = 140, SPEED2 = 90; // pixels par seconde
+let lastTs = 0, sig1 = "", sig2 = "";
+
+const fmt = n => n == null ? "—" : n.toLocaleString("fr-FR", {minimumFractionDigits:2, maximumFractionDigits:2});
+const cls = c => c == null ? "na" : c >= 0 ? "up" : "dn";
+const arrow = c => c == null ? "" : c >= 0 ? "▲ +" : "▼ ";
+
+function item(q, label) {
+  return `<div class="it">${label ? `<span class="lbl">${label}</span>` : ""}<span class="sym">${q.s}</span>` +
+    `<span class="px">${fmt(q.p)}${q.cur ? " " + q.cur.trim() : ""}</span>` +
+    `<span class="ch ${cls(q.c)}">${arrow(q.c)}${q.c == null ? "" : fmt(q.c) + "%"}</span></div>`;
+}
+
+function fill(track, html, speed) {
+  // on répète le contenu jusqu'à dépasser la largeur de l'écran, puis on double = boucle sans trou
+  track.innerHTML = html;
+  const laneW = track.parentElement.clientWidth, one = track.scrollWidth || 1;
+  const rep = Math.max(1, Math.ceil(laneW / one));
+  track.dataset.rep = rep;
+  track.innerHTML = html.repeat(rep * 2);
+  track.style.animationDuration = Math.max((one * rep) / speed, 10) + "s";
+}
+
+function render(data) {
+  const html1 = data.map(q => item(q)).join("");
+  const ok = data.filter(q => q.c != null);
+  const ups = [...ok].sort((a,b) => b.c - a.c).slice(0, 3).filter(q => q.c >= 0);
+  const dns = [...ok].sort((a,b) => a.c - b.c).slice(0, 3).filter(q => q.c < 0);
+  const html2 = ups.map(q => item(q, "TOP HAUSSE")).join("") + dns.map(q => item(q, "TOP BAISSE")).join("") || item({s:"—"});
+  const t1 = document.getElementById("t1"), t2 = document.getElementById("t2");
+  // On ne relance l'animation que si la liste change ; sinon on met juste à jour les valeurs
+  const s1 = data.map(q => q.s).join(), s2 = ups.concat(dns).map(q => q.s).join();
+  if (s1 !== sig1) { fill(t1, html1, SPEED1); sig1 = s1; } else patch(t1, html1);
+  if (s2 !== sig2) { fill(t2, html2, SPEED2); sig2 = s2; } else patch(t2, html2);
+}
+
+function patch(track, html) {
+  const tmp = document.createElement("div"); tmp.innerHTML = html.repeat((+track.dataset.rep || 1) * 2);
+  const neu = tmp.children, old = track.children;
+  for (let i = 0; i < old.length && i < neu.length; i++) old[i].innerHTML = neu[i].innerHTML;
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/quotes"); const j = await r.json();
+    if (j.ts && j.ts !== lastTs) { lastTs = j.ts; render(j.data); }
+  } catch (e) { document.getElementById("upd").textContent = "serveur injoignable"; }
+}
+
+function marketOpen(tz, o, c) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {timeZone:tz, weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false})
+    .formatToParts(new Date()).map(x => [x.type, x.value]));
+  if (p.weekday === "Sat" || p.weekday === "Sun") return false;
+  const m = +p.hour * 60 + +p.minute; return m >= o && m < c;
+}
+
+function tick() {
+  const d = new Date();
+  document.getElementById("clock").textContent = d.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
+  document.getElementById("date").textContent = d.toLocaleDateString("fr-FR", {weekday:"short", day:"numeric", month:"short"});
+  document.getElementById("dPA").classList.toggle("open", marketOpen("Europe/Paris", 540, 1050));
+  document.getElementById("dNY").classList.toggle("open", marketOpen("America/New_York", 570, 960));
+  if (lastTs) {
+    const s = Math.round(Date.now() / 1000 - lastTs);
+    document.getElementById("upd").textContent = s < 60 ? `MAJ il y a ${s}s` : `MAJ il y a ${Math.round(s/60)} min`;
+  }
+}
+
+tick(); poll();
+setInterval(tick, 1000); setInterval(poll, 1000);
+</script>
+</body>
+</html>
